@@ -1,0 +1,33 @@
+{
+  "name": "pdf-sud",
+  "version": "1.1.0",
+  "description": "PDF-SUD — leitor de PDF da SUD Lisboa",
+  "main": "main.js",
+  "author": "SUD Lisboa",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --publish never"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "pt.sudlisboa.pdfsud",
+    "productName": "PDF-SUD",
+    "files": [ "main.js", "preload.js", "PDF_SUD.html", "PDF.ico" ],
+    "fileAssociations": [
+      { "ext": "pdf", "name": "PDF", "description": "Documento PDF", "icon": "PDF.ico", "role": "Viewer" }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "PDF.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
+  }
+}
