@@ -273,17 +273,14 @@ btnGuardar.addEventListener('click',()=>{
 btnImprimir.addEventListener('click',async()=>{
   try{
     if(!pdfDoc){ alert('Abre primeiro um PDF.'); return; }
-    const area=document.getElementById('printArea'); area.innerHTML='';
-    const cvs=[...document.querySelectorAll('.pagewrap canvas')];
-    if(!cvs.length){ alert('N\u00e3o h\u00e1 p\u00e1ginas desenhadas para imprimir.'); return; }
-    await Promise.all(cvs.map(cv=>new Promise(res=>{
-      const img=new Image();
-      img.onload=res; img.onerror=res;
-      try{ img.src=cv.toDataURL('image/png'); }catch(e){ res(); }
-      area.appendChild(img);
-    })));
-    if(window.electronAPI && window.electronAPI.imprimir){
-      const r=await window.electronAPI.imprimir();
+    // Imprimir o PDF ORIGINAL (n\u00e3o imagens): entrega o ficheiro ao Windows
+    if(window.electronAPI && window.electronAPI.imprimirPDF && ficheiroAtual){
+      const buf=await ficheiroAtual.arrayBuffer();
+      const bytes=new Uint8Array(buf);
+      let bin=''; const chunk=0x8000;
+      for(let i=0;i<bytes.length;i+=chunk){ bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+chunk)); }
+      const b64=btoa(bin);
+      const r=await window.electronAPI.imprimirPDF(b64);
       if(r && r.ok===false){ alert('A impress\u00e3o n\u00e3o foi conclu\u00edda: '+(r.reason||'motivo desconhecido')); }
     } else if(window.print){
       window.print();

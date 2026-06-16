@@ -64,23 +64,39 @@ if (!lock) {
 
   ipcMain.handle('imprimir-pdf', async (event, base64) => {
     let tmp = null, pdfWin = null;
+    const limpar = () => {
+      try { if (pdfWin && !pdfWin.isDestroyed()) pdfWin.close(); } catch (_) {}
+      try { if (tmp && fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch (_) {}
+    };
     try {
       tmp = path.join(os.tmpdir(), 'pdfsud-' + Date.now() + '.pdf');
       fs.writeFileSync(tmp, Buffer.from(base64, 'base64'));
-      pdfWin = new BrowserWindow({ show: false, webPreferences: { plugins: true } });
-      await pdfWin.loadFile(tmp);
-      await new Promise(r => setTimeout(r, 900));
+      pdfWin = new BrowserWindow({
+        width: 900, height: 1200,
+        show: false,
+        skipTaskbar: true,
+        webPreferences: { plugins: true }
+      });
+      pdfWin.setOpacity(0);                 // invisível
+      await pdfWin.loadFile(tmp);           // carrega o PDF no visualizador do Chromium
+      pdfWin.showInactive();                // mostra (para renderizar) sem roubar o foco
+      await new Promise(r => setTimeout(r, 1500)); // tempo para o PDF desenhar
       return await new Promise((resolve) => {
-        pdfWin.webContents.print({ silent: false, printBackground: true }, (ok, reason) => {
-          resolve({ ok, reason });
-          try { pdfWin.close(); } catch (_) {}
-          try { fs.unlinkSync(tmp); } catch (_) {}
-        });
+        let resolvido = false;
+        const acabar = (ok, reason) => {
+          if (resolvido) return; resolvido = true;
+          resolve({ ok: ok, reason: reason });
+          setTimeout(limpar, 1500);
+        };
+        try {
+          pdfWin.webContents.print({ silent: false, printBackground: true }, (ok, reason) => acabar(ok, reason));
+        } catch (e) {
+          acabar(false, String(e && e.message ? e.message : e));
+        }
       });
     } catch (err) {
-      try { if (pdfWin) pdfWin.close(); } catch (_) {}
-      try { if (tmp) fs.unlinkSync(tmp); } catch (_) {}
-      return { ok: false, reason: String(err) };
+      limpar();
+      return { ok: false, reason: String(err && err.message ? err.message : err) };
     }
   });
 
