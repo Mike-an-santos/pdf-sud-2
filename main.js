@@ -28,6 +28,15 @@ function entregarPDF(caminho) {
   }
 }
 
+// caminho do SumatraPDF: na app instalada fica em "resources"; em desenvolvimento, ao lado do main.js
+function caminhoSumatra() {
+  const empacotado = path.join(process.resourcesPath || '', 'SumatraPDF.exe');
+  if (fs.existsSync(empacotado)) return empacotado;
+  const dev = path.join(__dirname, 'SumatraPDF.exe');
+  if (fs.existsSync(dev)) return dev;
+  return null;
+}
+
 function criarJanela() {
   win = new BrowserWindow({
     width: 1280,
@@ -56,27 +65,39 @@ if (!lock) {
     entregarPDF(encontrarPDF(argv));
   });
 
-  // Impressão: NÃO usa o motor do Electron. Grava o PDF e pede ao Windows
-  // para o imprimir com o programa de PDF do sistema (o mesmo motor do Acrobat).
-  // Vai para a impressora PREDEFINIDA do Windows.
+  // Impressão com o SumatraPDF: abre o painel para escolher a impressora e imprime o PDF real.
   ipcMain.handle('imprimir-pdf', async (event, base64) => {
     let tmp = null;
     try {
       tmp = path.join(os.tmpdir(), 'BEO-' + Date.now() + '.pdf');
       fs.writeFileSync(tmp, Buffer.from(base64, 'base64'));
-      const caminho = tmp.replace(/'/g, "''"); // escapar plicas para o PowerShell
-      return await new Promise((resolve) => {
-        execFile(
-          'powershell.exe',
-          ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', "Start-Process -FilePath '" + caminho + "' -Verb Print"],
-          { windowsHide: true },
-          (err) => {
-            // apagar o temporário só passado 90s (o leitor de PDF precisa de o ler primeiro)
-            setTimeout(() => { try { fs.unlinkSync(tmp); } catch (_) {} }, 90000);
+
+      const sumatra = caminhoSumatra();
+      const apagarDepois = () => setTimeout(() => { try { fs.unlinkSync(tmp); } catch (_) {} }, 120000);
+
+      if (sumatra) {
+        // -print-dialog: mostra o painel para escolher impressora
+        // -exit-when-done: fecha o SumatraPDF assim que terminar
+        return await new Promise((resolve) => {
+          execFile(sumatra, ['-print-dialog', '-exit-when-done', '-silent', tmp], { windowsHide: true }, (err) => {
+            apagarDepois();
             if (err) resolve({ ok: false, reason: String(err.message || err) });
             else resolve({ ok: true });
-          }
-        );
+          });
+        });
+      }
+
+      // recurso (se o SumatraPDF não estiver presente): abre o BEO no leitor predefinido
+      return await new Promise((resolve) => {
+        const p = tmp.replace(/'/g, "''");
+        execFile('powershell.exe',
+          ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', "Start-Process -FilePath '" + p + "'"],
+          { windowsHide: true },
+          (err) => {
+            apagarDepois();
+            if (err) resolve({ ok: false, reason: String(err.message || err) });
+            else resolve({ ok: true, aberto: true });
+          });
       });
     } catch (err) {
       try { if (tmp && fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch (_) {}
