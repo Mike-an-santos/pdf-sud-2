@@ -72,15 +72,14 @@ if (!lock) {
       tmp = path.join(os.tmpdir(), 'pdfsud-' + Date.now() + '.pdf');
       fs.writeFileSync(tmp, Buffer.from(base64, 'base64'));
       pdfWin = new BrowserWindow({
-        width: 900, height: 1200,
-        show: false,
-        skipTaskbar: true,
+        width: 820, height: 1060,
+        title: 'PDF-SUD — impressão',
+        autoHideMenuBar: true,
+        backgroundColor: '#ffffff',
         webPreferences: { plugins: true }
       });
-      pdfWin.setOpacity(0);                 // invisível
-      await pdfWin.loadFile(tmp);           // carrega o PDF no visualizador do Chromium
-      pdfWin.showInactive();                // mostra (para renderizar) sem roubar o foco
-      await new Promise(r => setTimeout(r, 1500)); // tempo para o PDF desenhar
+      await pdfWin.loadFile(tmp);           // carrega o PDF (janela visível para garantir o desenho)
+      await new Promise(r => setTimeout(r, 1600)); // tempo para o visualizador de PDF desenhar
       return await new Promise((resolve) => {
         let resolvido = false;
         const acabar = (ok, reason) => {
