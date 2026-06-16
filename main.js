@@ -65,7 +65,7 @@ if (!lock) {
     entregarPDF(encontrarPDF(argv));
   });
 
-  // Impressão com o SumatraPDF: abre o painel para escolher a impressora e imprime o PDF real.
+  // Impressão com o SumatraPDF: imprime direto na impressora predefinida, sem painel.
   ipcMain.handle('imprimir-pdf', async (event, base64) => {
     let tmp = null;
     try {
@@ -76,13 +76,17 @@ if (!lock) {
       const apagarDepois = () => setTimeout(() => { try { fs.unlinkSync(tmp); } catch (_) {} }, 120000);
 
       if (sumatra) {
-        // -print-dialog: mostra o painel para escolher impressora
-        // -exit-when-done: fecha o SumatraPDF assim que terminar
+        // -print-to-default: imprime DIRETO na impressora predefinida do Windows (a HP), sem painel
+        // -silent: não mostra janelas nem mensagens do SumatraPDF
         return await new Promise((resolve) => {
-          execFile(sumatra, ['-print-dialog', '-exit-when-done', '-silent', tmp], { windowsHide: true }, (err) => {
+          execFile(sumatra, ['-print-to-default', '-silent', tmp], { windowsHide: true }, (err) => {
             apagarDepois();
-            if (err) resolve({ ok: false, reason: String(err.message || err) });
-            else resolve({ ok: true });
+            // Só é falha real se o SumatraPDF não conseguiu ARRANCAR (erro de spawn: código em texto, ex. ENOENT/UNKNOWN).
+            if (err && typeof err.code === 'string') {
+              resolve({ ok: false, reason: 'Não consegui iniciar o SumatraPDF (' + err.code + ').' });
+            } else {
+              resolve({ ok: true });
+            }
           });
         });
       }
