@@ -1,6 +1,6 @@
 {
   "name": "pdf-sud",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "PDF-SUD — leitor de PDF da SUD Lisboa",
   "main": "main.js",
   "author": "SUD Lisboa",
@@ -17,6 +17,7 @@
     "appId": "pt.sudlisboa.pdfsud",
     "productName": "PDF-SUD",
     "files": [ "main.js", "preload.js", "PDF_SUD.html", "PDF.ico" ],
+    "extraResources": [ "SumatraPDF.exe" ],
     "fileAssociations": [
       { "ext": "pdf", "name": "PDF", "description": "Documento PDF", "icon": "PDF.ico", "role": "Viewer" }
     ],
