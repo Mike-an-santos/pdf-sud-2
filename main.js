@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { execFile } = require('child_process');
 
 let win = null;
 
@@ -55,47 +56,29 @@ if (!lock) {
     entregarPDF(encontrarPDF(argv));
   });
 
-  // (mantido por compatibilidade — já não é usado para imprimir)
-  ipcMain.handle('imprimir', () => {
-    if (!win) return { ok: false, reason: 'sem-janela' };
-    return new Promise((resolve) => {
-      win.webContents.print({ silent: false, printBackground: true }, (ok, reason) => resolve({ ok, reason }));
-    });
-  });
-
-  // Imprimir o PDF REAL: abre-o no visualizador do Electron (que o desenha bem)
-  // e dispara o Ctrl+P DESSE visualizador, que usa o motor interno de PDF.
+  // Impressão: NÃO usa o motor do Electron. Grava o PDF e pede ao Windows
+  // para o imprimir com o programa de PDF do sistema (o mesmo motor do Acrobat).
+  // Vai para a impressora PREDEFINIDA do Windows.
   ipcMain.handle('imprimir-pdf', async (event, base64) => {
-    let tmp = null, pdfWin = null;
+    let tmp = null;
     try {
-      tmp = path.join(os.tmpdir(), 'pdfsud-' + Date.now() + '.pdf');
+      tmp = path.join(os.tmpdir(), 'BEO-' + Date.now() + '.pdf');
       fs.writeFileSync(tmp, Buffer.from(base64, 'base64'));
-      pdfWin = new BrowserWindow({
-        width: 900,
-        height: 1080,
-        autoHideMenuBar: true,
-        backgroundColor: '#ffffff',
-        webPreferences: { plugins: true }
-      });
-      pdfWin.on('closed', () => {
-        try { if (tmp && fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch (_) {}
-      });
-      await pdfWin.loadFile(tmp);
-      // dar tempo ao visualizador para desenhar e depois disparar a impressão DELE (Ctrl+P)
-      setTimeout(() => {
-        try {
-          if (pdfWin && !pdfWin.isDestroyed()) {
-            pdfWin.focus();
-            const wc = pdfWin.webContents;
-            wc.sendInputEvent({ type: 'keyDown', keyCode: 'P', modifiers: ['control'] });
-            wc.sendInputEvent({ type: 'char',    keyCode: 'P', modifiers: ['control'] });
-            wc.sendInputEvent({ type: 'keyUp',   keyCode: 'P', modifiers: ['control'] });
+      const caminho = tmp.replace(/'/g, "''"); // escapar plicas para o PowerShell
+      return await new Promise((resolve) => {
+        execFile(
+          'powershell.exe',
+          ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', "Start-Process -FilePath '" + caminho + "' -Verb Print"],
+          { windowsHide: true },
+          (err) => {
+            // apagar o temporário só passado 90s (o leitor de PDF precisa de o ler primeiro)
+            setTimeout(() => { try { fs.unlinkSync(tmp); } catch (_) {} }, 90000);
+            if (err) resolve({ ok: false, reason: String(err.message || err) });
+            else resolve({ ok: true });
           }
-        } catch (_) {}
-      }, 1400);
-      return { ok: true };
+        );
+      });
     } catch (err) {
-      try { if (pdfWin && !pdfWin.isDestroyed()) pdfWin.close(); } catch (_) {}
       try { if (tmp && fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch (_) {}
       return { ok: false, reason: String(err && err.message ? err.message : err) };
     }
