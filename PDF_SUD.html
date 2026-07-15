@@ -444,17 +444,28 @@ async function renderPagina(m){
   const items=[];
   const tl=document.createElement('div'); tl.className='textlayer';
   tl.style.width=vp.width+'px'; tl.style.height=vp.height+'px'; tl.style.transform='none';
+  const _spans=[];
   for(const it of tc.items){
     if(!it.str||!it.str.trim()) continue;
     const tx=pdfjsLib.Util.transform(vp.transform,it.transform);
     const h=Math.hypot(tx[2],tx[3]);
-    items.push({x:tx[4], y:tx[5]-h, w:it.width*scale, h:h, text:it.str});
+    const wReal=it.width*scale;
+    items.push({x:tx[4], y:tx[5]-h, w:wReal, h:h, text:it.str});
     const sp=document.createElement('span');
     sp.textContent=it.str;
     sp.style.left=tx[4]+'px'; sp.style.top=(tx[5]-h)+'px'; sp.style.fontSize=h+'px';
+    sp.style.fontFamily='sans-serif';
     tl.appendChild(sp);
+    _spans.push({sp:sp, w:wReal});
   }
   wrap.insertBefore(tl, ov);
+  // Ajustar a largura de cada pedaço de texto invisível à largura real que ocupa no PDF.
+  // Sem isto, o texto que se seleciona não coincide com o que se vê (selecção imprecisa).
+  // Duas passagens (medir tudo, depois aplicar) para não recalcular o desenho a cada item.
+  try{
+    const _ws=_spans.map(function(s){return s.sp.offsetWidth;});
+    _spans.forEach(function(s,k){ if(s.w>0&&_ws[k]>0) s.sp.style.transform='scaleX('+(s.w/_ws[k])+')'; });
+  }catch(e){}
   if(pages[idx]) pages[idx].items=items;
   m.canvas=canvas; m.ov=ov; m.tl=tl; m.renderedZoom=zoom;
   ligarLapis(ov,idx);
@@ -551,10 +562,16 @@ function apanhar(idx,sel,ov){
   const hit=pages[idx].items.filter(it=>intersects(it,sel));
   if(!hit.length) return;
   hit.sort((a,b)=> (Math.abs(a.y-b.y)>4?a.y-b.y:a.x-b.x));
-  let txt='',lastY=null;
+  let txt='',lastY=null,lastX=null;
   for(const it of hit){
-    if(lastY!==null&&it.y-lastY>it.h*0.6) txt+='\n'; else if(txt) txt+=' ';
-    txt+=it.text; lastY=it.y;
+    if(lastY!==null&&it.y-lastY>it.h*0.6){ txt+='\n'; }
+    else if(txt){
+      // Mesma linha: o PDF parte as palavras em vários pedaços ("31 de Ju"+"lho de 202"+"6").
+      // Só separar com espaço se houver mesmo um intervalo entre eles; senão juntar direto.
+      const gap = (lastX===null) ? 0 : (it.x - lastX);
+      if(gap > it.h*0.2 && !/\s$/.test(txt) && !/^\s/.test(it.text)) txt+=' ';
+    }
+    txt+=it.text; lastY=it.y; lastX=it.x+it.w;
   }
   var _ord=['beo','nome','data','piso'];
   captured.push({text: txt.replace(/[ \t]+\n/g,'\n').trim(), tag: _ord[captured.length]||'obs'});
