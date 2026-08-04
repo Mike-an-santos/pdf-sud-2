@@ -349,26 +349,39 @@ btnGuardar.addEventListener('click',()=>{
 
 btnImprimir.addEventListener('click',async()=>{
   if(!pdfDoc){ enviarNotaMsg('Abre primeiro um PDF.','err'); return; }
-  if(btnImprimir.disabled) return;            // evita cliques repetidos a lan\u00e7ar 2 impress\u00f5es
+  if(btnImprimir.disabled) return;
   btnImprimir.disabled=true;
-  enviarNotaMsg('A enviar para a impressora\u2026','');
+  const printArea=document.getElementById('printArea');
   try{
-    if(window.electronAPI && window.electronAPI.imprimirPDF && ficheiroAtual){
-      const buf=await ficheiroAtual.arrayBuffer();
-      const bytes=new Uint8Array(buf);
-      let bin=''; const chunk=0x8000;
-      for(let i=0;i<bytes.length;i+=chunk){ bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+chunk)); }
-      const b64=btoa(bin);
-      const r=await window.electronAPI.imprimirPDF(b64);
-      if(r && r.ok===false){ enviarNotaMsg('N\u00e3o foi poss\u00edvel imprimir: '+(r.reason||'motivo desconhecido'),'err'); }
-      else { enviarNotaMsg('Enviado para a impressora \u2713','ok'); }
-    } else if(window.print){
-      window.print(); enviarNotaMsg('','');
-    } else {
-      enviarNotaMsg('Esta vers\u00e3o n\u00e3o tem liga\u00e7\u00e3o \u00e0 impress\u00e3o.','err');
+    enviarNotaMsg('A preparar a impress\u00e3o\u2026','');
+    // 1) Garantir que TODAS as paginas estao desenhadas (as fora do ecra sao preguicosas).
+    if(typeof _pageMetas!=='undefined' && _pageMetas.length){
+      for(const m of _pageMetas){ if(!m.rendered){ try{ await renderPagina(m); }catch(_){} } }
+      await new Promise(r=>setTimeout(r,150));
     }
-  }catch(err){ enviarNotaMsg('Erro ao imprimir: '+((err&&err.message)?err.message:err),'err'); }
-  finally{ btnImprimir.disabled=false; }
+    // 2) Copiar cada canvas ja desenhado para uma imagem dentro do #printArea.
+    if(printArea){
+      printArea.innerHTML='';
+      const canvases=document.querySelectorAll('#stage .pagewrap canvas');
+      if(!canvases.length){ enviarNotaMsg('Nada para imprimir.','err'); btnImprimir.disabled=false; return; }
+      canvases.forEach(cv=>{
+        try{
+          const img=new Image();
+          img.src=cv.toDataURL('image/png');
+          printArea.appendChild(img);
+        }catch(_){}
+      });
+    }
+    // 3) Imprimir pela via NATIVA do sistema (window.print) — mostra o painel do Windows.
+    await new Promise(r=>setTimeout(r,120));
+    window.print();
+    enviarNotaMsg('','');
+  }catch(err){
+    enviarNotaMsg('Erro ao preparar impress\u00e3o: '+((err&&err.message)?err.message:err),'err');
+  }finally{
+    // Limpar o printArea depois de imprimir (nao deixar imagens pesadas em memoria).
+    setTimeout(()=>{ if(printArea) printArea.innerHTML=''; btnImprimir.disabled=false; }, 1000);
+  }
 });
 
 async function abrir(file){
