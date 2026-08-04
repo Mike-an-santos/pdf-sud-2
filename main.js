@@ -89,24 +89,35 @@ if (!lock) {
         setTimeout(limpar, 2000);
       };
 
-      return await new Promise(async (resolve) => {
-        const salvaguarda = setTimeout(() => acabar(false, 'tempo-esgotado', resolve), 15000);
-        try {
-          const fileUrl = 'file://' + tmp.replace(/\\/g, '/');
-          const html = '<!doctype html><html><head><meta charset="utf-8">'
-            + '<style>html,body{margin:0;padding:0;height:100%;}embed{width:100%;height:100%;}</style>'
-            + '</head><body><embed type="application/pdf" src="' + fileUrl + '#toolbar=0"></body></html>';
-          await pdfWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
-          // Tempo para o <embed> desenhar o PDF antes de imprimir.
-          await new Promise(r => setTimeout(r, 1200));
-          pdfWin.webContents.print(
-            { silent: true, printBackground: true },
-            (ok, reason) => { clearTimeout(salvaguarda); acabar(ok, ok ? '' : (reason || 'falhou'), resolve); }
-          );
-        } catch (e) {
-          clearTimeout(salvaguarda);
-          acabar(false, String(e && e.message ? e.message : e), resolve);
-        }
+      return await new Promise((resolve) => {
+        // Salvaguarda mais generosa (30s) para PDFs grandes ou primeira abertura (sem cache).
+        const salvaguarda = setTimeout(() => acabar(false, 'tempo-esgotado', resolve), 30000);
+
+        // Imprime SO depois de o conteudo terminar mesmo de carregar (nao adivinha tempo).
+        const imprimir = () => {
+          // Pequena folga extra para o <embed> acabar de desenhar a 1a pagina.
+          setTimeout(() => {
+            try {
+              pdfWin.webContents.print(
+                { silent: true, printBackground: true },
+                (ok, reason) => { clearTimeout(salvaguarda); acabar(ok, ok ? '' : (reason || 'falhou'), resolve); }
+              );
+            } catch (e) {
+              clearTimeout(salvaguarda);
+              acabar(false, String(e && e.message ? e.message : e), resolve);
+            }
+          }, 800);
+        };
+
+        // did-finish-load dispara quando a pagina (com o PDF embutido) terminou de carregar.
+        pdfWin.webContents.once('did-finish-load', imprimir);
+
+        const fileUrl = 'file://' + tmp.replace(/\\/g, '/');
+        const html = '<!doctype html><html><head><meta charset="utf-8">'
+          + '<style>html,body{margin:0;padding:0;height:100%;}embed{width:100%;height:100%;}</style>'
+          + '</head><body><embed type="application/pdf" src="' + fileUrl + '#toolbar=0"></body></html>';
+        pdfWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
+          .catch((e) => { clearTimeout(salvaguarda); acabar(false, String(e && e.message ? e.message : e), resolve); });
       });
     } catch (err) {
       limpar();
