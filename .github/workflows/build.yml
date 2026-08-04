@@ -12,6 +12,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      # Salvaguarda: sem o SumatraPDF.exe não há impressão direta — parar já com aviso claro.
+      - name: Verificar SumatraPDF.exe
+        shell: pwsh
+        run: |
+          if (-Not (Test-Path "SumatraPDF.exe")) {
+            Write-Error "Falta o SumatraPDF.exe na raiz do repositorio. A impressao direta nao vai funcionar. Adiciona o ficheiro e faz commit."
+            exit 1
+          }
+          Write-Host "SumatraPDF.exe encontrado."
+
       - run: npm install
       - run: npm run dist
       - uses: actions/upload-artifact@v4
