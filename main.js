@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { execFile } = require('child_process');
 
 let win = null;
 
@@ -25,6 +26,15 @@ function entregarPDF(caminho) {
   } catch (e) {
     console.error('entregarPDF', e);
   }
+}
+
+// caminho do SumatraPDF: na app instalada fica em "resources"; em desenvolvimento, ao lado do main.js
+function caminhoSumatra() {
+  const empacotado = path.join(process.resourcesPath || '', 'SumatraPDF.exe');
+  if (fs.existsSync(empacotado)) return empacotado;
+  const dev = path.join(__dirname, 'SumatraPDF.exe');
+  if (fs.existsSync(dev)) return dev;
+  return null;
 }
 
 function criarJanela() {
@@ -55,72 +65,47 @@ if (!lock) {
     entregarPDF(encontrarPDF(argv));
   });
 
-  ipcMain.handle('imprimir', () => {
-    if (!win) return { ok: false, reason: 'sem-janela' };
-    return new Promise((resolve) => {
-      win.webContents.print({ silent: false, printBackground: true }, (ok, reason) => resolve({ ok, reason }));
-    });
-  });
-
+  // Impressão com o SumatraPDF: imprime direto na impressora predefinida, sem painel.
   ipcMain.handle('imprimir-pdf', async (event, base64) => {
-    // Renderiza o PDF numa janela oculta e imprime-a diretamente para a impressora
-    // predefinida (sem caixa de dialogo). NAO usa o visualizador interno de PDF do
-    // Chromium (que deixou de responder em versoes recentes do Electron) — em vez disso
-    // desenha o PDF num <embed> e imprime essa pagina, o que e fiavel entre versoes.
-    let tmp = null, pdfWin = null;
-    const limpar = () => {
-      try { if (pdfWin && !pdfWin.isDestroyed()) pdfWin.close(); } catch (_) {}
-      try { if (tmp && fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch (_) {}
-    };
+    let tmp = null;
     try {
-      tmp = path.join(os.tmpdir(), 'pdfsud-' + Date.now() + '.pdf');
+      tmp = path.join(os.tmpdir(), 'BEO-' + Date.now() + '.pdf');
       fs.writeFileSync(tmp, Buffer.from(base64, 'base64'));
 
-      pdfWin = new BrowserWindow({
-        show: false,
-        webPreferences: { plugins: true }
-      });
+      const sumatra = caminhoSumatra();
+      const apagarDepois = () => setTimeout(() => { try { fs.unlinkSync(tmp); } catch (_) {} }, 120000);
 
-      // Timeout de seguranca: se algo encravar, responde em vez de ficar preso para sempre.
-      let resolvido = false;
-      const acabar = (ok, reason, resolve) => {
-        if (resolvido) return; resolvido = true;
-        resolve({ ok: ok, reason: reason });
-        setTimeout(limpar, 2000);
-      };
-
-      return await new Promise((resolve) => {
-        // Salvaguarda mais generosa (30s) para PDFs grandes ou primeira abertura (sem cache).
-        const salvaguarda = setTimeout(() => acabar(false, 'tempo-esgotado', resolve), 30000);
-
-        // Imprime SO depois de o conteudo terminar mesmo de carregar (nao adivinha tempo).
-        const imprimir = () => {
-          // Pequena folga extra para o <embed> acabar de desenhar a 1a pagina.
-          setTimeout(() => {
-            try {
-              pdfWin.webContents.print(
-                { silent: true, printBackground: true },
-                (ok, reason) => { clearTimeout(salvaguarda); acabar(ok, ok ? '' : (reason || 'falhou'), resolve); }
-              );
-            } catch (e) {
-              clearTimeout(salvaguarda);
-              acabar(false, String(e && e.message ? e.message : e), resolve);
+      if (sumatra) {
+        // -print-to-default: imprime DIRETO na impressora predefinida do Windows (a HP), sem painel
+        // -silent: não mostra janelas nem mensagens do SumatraPDF
+        return await new Promise((resolve) => {
+          execFile(sumatra, ['-print-to-default', '-silent', tmp], { windowsHide: true }, (err) => {
+            apagarDepois();
+            // Só é falha real se o SumatraPDF não conseguiu ARRANCAR (erro de spawn: código em texto, ex. ENOENT/UNKNOWN).
+            if (err && typeof err.code === 'string') {
+              resolve({ ok: false, reason: 'Não consegui iniciar o SumatraPDF (' + err.code + ').' });
+            } else {
+              resolve({ ok: true });
             }
-          }, 800);
-        };
+          });
+        });
+      }
 
-        // did-finish-load dispara quando a pagina (com o PDF embutido) terminou de carregar.
-        pdfWin.webContents.once('did-finish-load', imprimir);
-
-        const fileUrl = 'file://' + tmp.replace(/\\/g, '/');
-        const html = '<!doctype html><html><head><meta charset="utf-8">'
-          + '<style>html,body{margin:0;padding:0;height:100%;}embed{width:100%;height:100%;}</style>'
-          + '</head><body><embed type="application/pdf" src="' + fileUrl + '#toolbar=0"></body></html>';
-        pdfWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
-          .catch((e) => { clearTimeout(salvaguarda); acabar(false, String(e && e.message ? e.message : e), resolve); });
+      // Sem SumatraPDF: nao consegue impressao direta. Avisa e abre no leitor predefinido do Windows.
+      // recurso (se o SumatraPDF não estiver presente): abre o BEO no leitor predefinido
+      return await new Promise((resolve) => {
+        const p = tmp.replace(/'/g, "''");
+        execFile('powershell.exe',
+          ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', "Start-Process -FilePath '" + p + "'"],
+          { windowsHide: true },
+          (err) => {
+            apagarDepois();
+            if (err) resolve({ ok: false, reason: String(err.message || err) });
+            else resolve({ ok: true, aberto: true, semMotor: true });
+          });
       });
     } catch (err) {
-      limpar();
+      try { if (tmp && fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch (_) {}
       return { ok: false, reason: String(err && err.message ? err.message : err) };
     }
   });
